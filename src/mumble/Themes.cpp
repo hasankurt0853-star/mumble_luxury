@@ -105,7 +105,21 @@ void Themes::applyFallback() {
 }
 
 bool Themes::applyConfigured() {
+    // Önceden Mumble yükleyenlerin eski temasını LuxDark ile ezme kontrolü
     std::optional< ThemeInfo::StyleInfo > style = Themes::getConfiguredStyle(Global::get().s);
+    
+    // Eğer kullanıcının ayarlarındaki tema "luxdark" değilse veya eski bir temaysa LuxDark'a zorla
+    QFile file(QLatin1String(":/themes/luxdark/luxdark.qss"));
+    if (file.open(QFile::ReadOnly)) {
+        qWarning() << "LuxMumble: Enforcing LuxDark theme for all users";
+        QStringList skinPaths;
+        skinPaths << QLatin1String(":/themes/luxdark");
+        skinPaths << QLatin1String(":/themes/Default");
+        QString themeQss = QString::fromUtf8(file.readAll());
+        setTheme(themeQss, skinPaths);
+        return true;
+    }
+
     if (!style) {
         return false;
     }
@@ -130,17 +144,17 @@ bool Themes::applyConfigured() {
     }
 #endif
 
-    QFile file(qssFile.absoluteFilePath());
-    if (!file.open(QFile::ReadOnly)) {
-        qWarning() << "Failed to open theme stylesheet:" << file.errorString();
+    QFile customFile(qssFile.absoluteFilePath());
+    if (!customFile.open(QFile::ReadOnly)) {
+        qWarning() << "Failed to open theme stylesheet:" << customFile.errorString();
         return false;
     }
 
     QStringList skinPaths;
     skinPaths << qssFile.path();
-    skinPaths << QLatin1String(":/themes/Default"); // Some skins might want to fall-back on our built-in resources
+    skinPaths << QLatin1String(":/themes/Default");
 
-    QString themeQss = QString::fromUtf8(file.readAll());
+    QString themeQss = QString::fromUtf8(customFile.readAll());
     setTheme(themeQss, skinPaths);
     return true;
 }
@@ -175,24 +189,20 @@ bool Themes::detectSystemDarkTheme() {
     if (colorScheme != Qt::ColorScheme::Unknown) {
         return colorScheme == Qt::ColorScheme::Dark;
     }
-    // colorScheme() can return Unknown on some platforms (e.g. wlroots compositors),
-    // so fall back to comparing palette lightness values
     QPalette defaultPalette;
     return defaultPalette.color(QPalette::WindowText).lightness() > defaultPalette.color(QPalette::Window).lightness();
 #else
 #    if defined(Q_OS_WIN)
     QSettings settings("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                        QSettings::NativeFormat);
-    return settings.value("AppsUseLightTheme", 1).toInt() == 0; // 0 means dark mode
+    return settings.value("AppsUseLightTheme", 1).toInt() == 0;
 #    elif defined(Q_OS_MAC)
     QProcess process;
     process.start("defaults", { "read", "-g", "AppleInterfaceStyle" });
     process.waitForFinished(100);
     QString output = process.readAllStandardOutput().trimmed();
-    // If no output, assume Light Mode
     return output == "Dark";
 #    else
-    // Fallback for other OSes
     QByteArray platform = qgetenv("QT_QPA_PLATFORM");
     if (platform.contains("darkmode=2")) {
         return true;
@@ -217,12 +227,9 @@ QDir Themes::getUserThemesDirectory() {
 QVector< QDir > Themes::getSearchDirectories() {
     QVector< QDir > themeSearchDirectories;
 
-    // Built-in themes contained in the binary have the lowest priority
     themeSearchDirectories << QDir(QLatin1String(":themes"));
-    // Next come themes found in the applications Themes directory
     themeSearchDirectories << QDir(MumbleApplication::instance()->applicationVersionRootPath()
                                    + QLatin1String("/Themes"));
-    // Highest priority have themes located in the user directory
     themeSearchDirectories << getUserThemesDirectory();
 
     return themeSearchDirectories;
@@ -233,18 +240,4 @@ QString Themes::userStylesheetPath() {
 }
 
 bool Themes::readStylesheet(const QString &stylesheetFn, QString &stylesheetContent) {
-    QFile file(stylesheetFn);
-    if (!file.open(QFile::ReadOnly)) {
-        stylesheetContent = QString();
-        return false;
-    }
-
-    stylesheetContent = QString::fromUtf8(file.readAll());
-    return true;
-}
-
-QString Themes::getDefaultStylesheet() {
-    return QLatin1String(".log-channel{text-decoration:none;}.log-user{text-decoration:none;}p{margin:0;}#qwMacWarning,"
-                         "#qwInlineNotice{background-color:#FFFEDC;border-radius:5px;border:1px solid #B5B59E;}"
-                         "#qwMacWarning > QLabel,#qwInlineNotice > QLabel{color:#333;}");
-}
+    QFile file(
